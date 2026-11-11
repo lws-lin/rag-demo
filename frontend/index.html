@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN" data-type="software" data-site-kind="software" data-radius="soft" data-buttons="pill" data-motion>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>医疗机构知识库：给机构同事查阅资料</title>
+    <meta
+      name="description"
+      content="机构内部的知识库，收工业设计资料和法律法规。查文档时回答回到原文件，出方案时单独生成 PPT 和图像。"
+    />
+    <meta name="theme-color" content="#f4f6f8" />
+    <meta name="page-type" content="software" />
+    <meta name="site-kind" content="software" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <!-- palette lunar-grey-bronze; type geist; buttons pill; mark ring; radius soft.
+         Noto Sans SC carries the Chinese, because Geist has no CJK glyphs. -->
+    <script>
+      document.documentElement.classList.add("m-enter");
+      setTimeout(() => document.documentElement.classList.add("m-enter-done"), 700);
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

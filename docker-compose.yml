@@ -1,0 +1,61 @@
+# 本地一键启动：PostgreSQL、FastAPI、Vue 静态站点。
+# 前端通过 Nginx 把 /api 转发到后端，浏览器访问 8088。
+# 8080 在本机常被其他服务占用，所以网页端口用 8088。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+      POSTGRES_DB: ${POSTGRES_DB:-rag}
+    ports:
+      - "5432:5432"
+    volumes:
+      - rag_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DB:-rag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD:-rag}@postgres:5432/${POSTGRES_DB:-rag}
+      INBOX_DIR: /data/inbox
+      LIBRARY_DIR: /data/library
+    volumes:
+      - ./data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 25s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  rag_pgdata:
