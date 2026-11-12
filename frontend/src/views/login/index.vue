@@ -3,13 +3,13 @@
     <a class="skip-link" href="#login-form">跳到登录</a>
     <div class="login-wrap">
       <section class="login-copy">
-        <p class="eyebrow">
+        <!-- <p class="eyebrow">
           <span class="mark" aria-hidden="true"></span>
           机构内部
-        </p>
+        </p> -->
         <h1>医疗机构知识库</h1>
-        <p class="lead">工业设计资料与法律法规。查文档时回答回到原文件，出方案时单独生成 PPT 和图像。</p>
-        <p class="rule">查文档只依据已发布原文。</p>
+        <!-- <p class="lead">工业设计资料与法律法规。查文档时回答回到原文件，出方案时单独生成 PPT 和图像。</p>
+        <p class="rule">查文档只依据已发布原文。</p> -->
       </section>
       <form id="login-form" class="form" @submit.prevent="onSubmit">
         <h2>登录</h2>
