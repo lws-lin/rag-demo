@@ -50,7 +50,7 @@
 
 ## 本地调试
 
-需要 Python 3.12、Node.js 和 Docker。系统自带的 Python 3.9 不能跑这份代码。
+需要 Python 3.12、Node.js 和 Docker。
 
 只启动数据库：
 
