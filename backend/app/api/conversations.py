@@ -17,7 +17,17 @@ from app.schemas.conversation import (
     MessageOut,
 )
 from app.services.answer import intent_of, prepare_sources
-from app.services.llm import ChatModelError, chat_configured, conversation_messages, stream_chat
+from app.services.llm import (
+    ChatModelError,
+    chat_configured,
+    clip_history,
+    compress_passage,
+    compress_turns,
+    conversation_messages,
+    is_long_text,
+    split_recent,
+    stream_chat,
+)
 from app.services.vectors import VectorWriteError, search_published
 
 router = APIRouter()
@@ -96,18 +106,21 @@ def create_message(
         db.scalars(
             select(Message)
             .where(Message.conversation_id == conversation.id)
-            .order_by(Message.created_at.desc())
-            .limit(8)
+            .order_by(Message.created_at.asc())
         ).all()
     )
-    history.reverse()
-    prior = []
-    for item in history:
-        text = item.content if len(item.content) <= 1200 else item.content[:1200] + "…"
-        prior.append((item.role, text))
-    messages = conversation_messages(mode, prior, content, evidence)
     stored_mode = mode if mode in {"qa", "proposal"} else conversation.mode
     title = content[:24] if conversation.title == "新对话" else conversation.title
+    conversation_id = conversation.id
+    summary, prior, history_truncated = _prepare_history(db, conversation, history)
+    messages = conversation_messages(
+        mode,
+        prior,
+        content,
+        evidence,
+        summary=summary,
+        history_truncated=history_truncated,
+    )
 
     def generate():
         parts: list[str] = []
@@ -123,13 +136,78 @@ def create_message(
             yield _event({"type": "error", "detail": "对话模型没有返回内容，消息没有保存"})
             return
         try:
-            turn = _save_turn(conversation.id, content, reply, citations, stored_mode, title)
+            turn = _save_turn(conversation_id, content, reply, citations, stored_mode, title)
         except Exception:
             yield _event({"type": "error", "detail": "回答已生成，但保存失败"})
             return
         yield _event({"type": "done", **turn})
 
     return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _prepare_history(db: Session, conversation: Conversation, history: list[Message]) -> tuple[str, list[tuple[str, str]], bool]:
+    """过长的单条消息和放不下的早期对话压成摘要。页面仍读取原来的消息正文。"""
+    try:
+        prompt = [(message.role, _text_for_model(message)) for message in history]
+        older, recent = split_recent(prompt)
+        summary = _fold_summary(conversation, history[: len(older)], older) if older else ""
+        if db.dirty:
+            db.commit()
+        return summary, recent, False
+    except ChatModelError:
+        db.rollback()
+        clipped, truncated = clip_history([(message.role, message.content) for message in history])
+        return "", clipped, truncated
+
+
+def _text_for_model(message: Message) -> str:
+    text = message.content.strip()
+    if not is_long_text(text):
+        return text
+    if message.context_brief and message.context_brief.strip():
+        return message.context_brief.strip()
+    brief = compress_passage(message.role, text)
+    message.context_brief = brief
+    return brief
+
+
+def _fold_summary(
+    conversation: Conversation,
+    older_messages: list[Message],
+    older_turns: list[tuple[str, str]],
+) -> str:
+    previous = (conversation.context_summary or "").strip()
+    start = 0
+    if conversation.summary_until is not None:
+        found = False
+        for index, message in enumerate(older_messages):
+            if message.id == conversation.summary_until:
+                start = index + 1
+                found = True
+                break
+        if not found:
+            previous = ""
+            start = 0
+    else:
+        previous = ""
+    pending = older_turns[start:]
+    if not pending:
+        return previous
+    summary = previous
+    batch: list[tuple[str, str]] = []
+    size = 0
+    for item in pending:
+        if batch and size + len(item[1]) > 8000:
+            summary = compress_turns(summary, batch)
+            batch = []
+            size = 0
+        batch.append(item)
+        size += len(item[1])
+    if batch:
+        summary = compress_turns(summary, batch)
+    conversation.context_summary = summary
+    conversation.summary_until = older_messages[-1].id
+    return summary
 
 
 def _event(payload: dict) -> str:
