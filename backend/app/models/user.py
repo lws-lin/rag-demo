@@ -10,7 +10,7 @@ from app.database import Base, utcnow
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("role in ('admin', 'user', 'auditor')", name="ck_users_role"),)
+    __table_args__ = (CheckConstraint("role in ('admin', 'user')", name="ck_users_role"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)

@@ -6,21 +6,21 @@
         <!-- <p>查文档只依据已发布原文。出方案会在后续接入 PPT 和图像。</p> -->
       </div>
       <form class="create" @submit.prevent="create">
-        <label class="field">
-          <div class="pair">
-            <el-input v-model="draftTitle" placeholder="请输入会话标题，可留空" />
-            <button class="button" type="submit" :disabled="creating">
-              {{ creating ? "正在创建" : "新对话" }}
-            </button>
-          </div>
-        </label>
+        <div class="create-box">
+          <el-input v-model="draftTitle" placeholder="请输入会话标题，可留空" />
+          <button class="create-submit" type="submit" :disabled="creating">
+            {{ creating ? "正在创建" : "新对话" }}
+          </button>
+        </div>
       </form>
       <p v-if="listError" class="error">{{ listError }}</p>
       <ul class="sessions">
         <li v-for="item in conversations" :key="item.id" :class="{ current: item.id === activeId }">
           <router-link :to="`/chat/${item.id}`">
             <strong>{{ item.title }}</strong>
-            <span class="meta">{{ formatTime(item.updated_at) }}</span>
+            <span class="meta">
+              <template v-if="item.mode">{{ modeLabel[item.mode] }} · </template>{{ formatTime(item.updated_at) }}
+            </span>
           </router-link>
           <button class="remove" type="button" title="删除" :aria-label="`删除${item.title}`" :disabled="deletingId === item.id" @click="remove(item)">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -34,45 +34,64 @@
     <section class="thread">
       <div v-if="!activeId" class="placeholder">
         <h2>选择或新建会话</h2>
-        <p>接入检索之后，回答会附带文件名、页码或条号，并能打开原文件。</p>
+        <p>回答由对话模型生成。查资料时依据已发布原文，并标出文件名和页码。</p>
       </div>
       <template v-else>
-        <div class="messages">
+        <div ref="thread" class="messages">
           <p v-if="threadError" class="error">{{ threadError }}</p>
-          <p v-else-if="messages.length === 0" class="empty">还没有消息。</p>
-          <article v-for="item in messages" :key="item.id" class="bubble" :class="item.role">
+          <div v-if="messages.length === 0" class="blank">
+            <h2>开始这段对话</h2>
+            <p>在下方输入即可。查资料时依据已发布原文，并标出文件名和页码。</p>
+          </div>
+          <article v-for="(item, index) in messages" :key="item.id" class="bubble" :class="item.role">
             <span class="who">{{ item.role === "user" ? "我" : "助手" }}</span>
-            <p>{{ item.content }}</p>
+            <p :class="{ streaming: sending && index === messages.length - 1 && item.role === 'assistant' }">{{ item.content || (sending && index === messages.length - 1 ? "正在回答" : "") }}</p>
+            <ul v-if="item.citations?.length" class="cites">
+              <li v-for="(cite, index) in item.citations" :key="`${item.id}-${index}`">
+                <button type="button" class="cite" @click="openSource(cite)">{{ citeLabel(cite) }}</button>
+              </li>
+            </ul>
           </article>
         </div>
-        <form class="composer" @submit.prevent="onSend">
-          <label class="field">
-            <div class="pair">
-              <el-input v-model="draft" type="textarea" :rows="2" resize="none" placeholder="输入要说的内容" />
+        <form class="composer" @submit.prevent="onSend" @keydown="onComposerKeydown">
+          <div class="composer-box">
+            <el-input v-model="draft" type="textarea" :rows="2" resize="none" placeholder="输入要说的内容" />
+            <div class="composer-bar">
+              <span>Shift + Enter 发送</span>
               <button class="button" type="submit" :disabled="sending || !draft.trim()">
-                {{ sending ? "发送中" : "发送消息" }}
+                {{ sending ? "发送中" : "发送" }}
               </button>
             </div>
-          </label>
+          </div>
         </form>
       </template>
     </section>
+    <el-drawer v-model="sourceOpen" :title="source?.title || '原文'" size="min(920px, calc(100vw - 32px))" @closed="source = null">
+      <div v-if="source" class="source-view">
+        <OriginalPreview :document-id="source.document_id" :filename="source.filename" :page-number="source.page_number" />
+      </div>
+    </el-drawer>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessageBox } from "element-plus";
 import { errorMessage } from "@/api/http";
 import { createConversation, deleteConversation, listConversations, listMessages, sendMessage } from "@/api/conversations";
-import { formatTime } from "@/labels";
-import type { ChatMessage, Conversation } from "@/types";
+import OriginalPreview from "@/components/OriginalPreview.vue";
+import { notifySuccess } from "@/feedback";
+import { effectLabel, formatTime, modeLabel } from "@/labels";
+import type { ChatMessage, Citation, Conversation } from "@/types";
 
 const route = useRoute();
 const router = useRouter();
 const conversations = ref<Conversation[]>([]);
 const messages = ref<ChatMessage[]>([]);
+const thread = ref<HTMLElement | null>(null);
+const source = ref<Citation | null>(null);
+const sourceOpen = ref(false);
 const draftTitle = ref("");
 const draft = ref("");
 const creating = ref(false);
@@ -108,6 +127,7 @@ async function create() {
   try {
     const created = await createConversation({ title: draftTitle.value.trim() });
     draftTitle.value = "";
+    notifySuccess("新对话已创建");
     await loadList();
     await router.push(`/chat/${created.id}`);
   } catch (err) {
@@ -131,6 +151,7 @@ async function remove(item: Conversation) {
   listError.value = "";
   try {
     await deleteConversation(item.id);
+    notifySuccess("对话已删除");
     if (activeId.value === item.id) await router.push("/chat");
     await loadList();
   } catch (err) {
@@ -140,26 +161,87 @@ async function remove(item: Conversation) {
   }
 }
 
+function citeLabel(cite: Citation) {
+  const parts = [cite.title];
+  if (cite.page_number) {
+    const unit = cite.filename.toLowerCase().endsWith(".pptx") ? "张" : "页";
+    parts.push(cite.page_end && cite.page_end !== cite.page_number ? `第 ${cite.page_number}–${cite.page_end} ${unit}` : `第 ${cite.page_number} ${unit}`);
+  }
+  const heading = cite.heading_path?.[cite.heading_path.length - 1];
+  if (heading) parts.push(heading);
+  if (cite.effective_status && effectLabel[cite.effective_status]) parts.push(effectLabel[cite.effective_status]);
+  return parts.join(" · ");
+}
+
+function openSource(cite: Citation) {
+  source.value = cite;
+  sourceOpen.value = true;
+}
+
+async function scrollThread() {
+  await nextTick();
+  const root = thread.value;
+  if (root) root.scrollTop = root.scrollHeight;
+}
+
+function onComposerKeydown(event: KeyboardEvent) {
+  if (event.key !== "Enter" || !event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  void onSend();
+}
+
 async function onSend() {
   const content = draft.value.trim();
-  if (!content || !activeId.value) return;
+  if (!content || !activeId.value || sending.value) return;
+  const conversationId = activeId.value;
   sending.value = true;
   threadError.value = "";
+  draft.value = "";
+  const pendingUser: ChatMessage = {
+    id: "pending-user",
+    role: "user",
+    content,
+    citations: [],
+    created_at: new Date().toISOString(),
+  };
+  const pendingAssistant: ChatMessage = {
+    id: "pending-assistant",
+    role: "assistant",
+    content: "",
+    citations: [],
+    created_at: new Date().toISOString(),
+  };
+  messages.value = [...messages.value, pendingUser, pendingAssistant];
+  await scrollThread();
   try {
-    const turn = await sendMessage(activeId.value, content);
-    messages.value = [...messages.value, turn.user_message, turn.assistant_message];
-    draft.value = "";
+    const turn = await sendMessage(conversationId, content, (text) => {
+      if (activeId.value !== conversationId) return;
+      pendingAssistant.content += text;
+      messages.value = [...messages.value.slice(0, -1), { ...pendingAssistant }];
+      void scrollThread();
+    });
+    if (activeId.value !== conversationId) return;
+    messages.value = [...messages.value.slice(0, -2), turn.user_message, turn.assistant_message];
     await loadList();
+    await scrollThread();
   } catch (err) {
-    threadError.value = errorMessage(err, "消息发送失败");
+    if (activeId.value === conversationId) {
+      messages.value = messages.value.filter((item) => item.id !== "pending-user" && item.id !== "pending-assistant");
+      draft.value = content;
+      threadError.value = err instanceof Error && err.message ? err.message : errorMessage(err, "消息发送失败");
+    }
   } finally {
     sending.value = false;
   }
 }
 
-watch(activeId, (id) => {
-  if (id) loadMessages(id);
-  else messages.value = [];
+watch(activeId, async (id) => {
+  sourceOpen.value = false;
+  source.value = null;
+  if (id) {
+    await loadMessages(id);
+    await scrollThread();
+  } else messages.value = [];
 }, { immediate: true });
 
 onMounted(loadList);
@@ -200,29 +282,49 @@ onMounted(loadList);
   line-height: 1.6;
 }
 
-.pair {
+.create-box {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 4px;
+  min-height: 40px;
+  padding: 0 4px 0 12px;
+  border-radius: 8px;
+  background: var(--surface);
 }
 
-.pair :deep(.el-input),
-.pair :deep(.el-textarea) {
+.create-box :deep(.el-input) {
   flex: 1;
   min-width: 0;
   width: auto;
 }
 
-.pair :deep(.el-input__wrapper) {
-  border-radius: var(--r-sm) 0 0 var(--r-sm);
+.create-box :deep(.el-input__wrapper) {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.pair .button {
-  border-radius: 0 4px 4px 0;
+.create-box :deep(.el-input__wrapper:hover),
+.create-box :deep(.el-input__wrapper.is-focus) {
+  box-shadow: none;
 }
 
-.pair .button:hover:not(:disabled),
-.pair .button:active:not(:disabled) {
+.create-submit {
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.create-submit:hover:not(:disabled),
+.create-submit:active:not(:disabled) {
+  background: transparent;
+  color: color-mix(in oklab, var(--ink) 18%, var(--accent));
   transform: none;
 }
 
@@ -239,7 +341,6 @@ onMounted(loadList);
 .sessions li {
   display: flex;
   align-items: center;
-  gap: 8px;
   border-radius: var(--r-sm);
 }
 
@@ -335,6 +436,41 @@ onMounted(loadList);
   white-space: pre-wrap;
 }
 
+.streaming::after {
+  content: "▍";
+  margin-left: 2px;
+  color: var(--accent);
+}
+
+.cites {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.cite {
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-view {
+  height: calc(100vh - 96px);
+  height: calc(100svh - 96px);
+}
+
 .bubble.user {
   align-self: flex-end;
   align-items: flex-end;
@@ -346,25 +482,65 @@ onMounted(loadList);
   background: var(--wash);
 }
 
+.blank {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 28em;
+  margin: 0 auto;
+}
+
+.blank h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.blank p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
 .composer {
-  padding: 16px 0;
-  border-top: 1px solid var(--line);
+  padding: 12px 0 16px;
 }
 
-.composer .pair {
-  align-items: stretch;
+.composer-box {
+  padding: 8px 8px 8px 16px;
+  border-radius: 12px;
+  background: var(--surface);
 }
 
-.composer .pair :deep(.el-textarea__inner) {
-  height: calc(2 * 1.5em + 16px);
+.composer-box :deep(.el-textarea__inner) {
   min-height: calc(2 * 1.5em + 16px);
-  padding: 8px 12px;
-  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  padding: 8px 4px 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: none;
   line-height: 1.5;
 }
 
-.composer .pair .button {
-  height: auto;
+.composer-box :deep(.el-textarea__inner:hover),
+.composer-box :deep(.el-textarea__inner:focus) {
+  border: 0;
+  box-shadow: none;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 4px 0;
+}
+
+.composer-bar span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -372,7 +548,8 @@ onMounted(loadList);
     transition: background-color 150ms var(--ease);
   }
 
-  .sessions a:hover {
+  .sessions li:hover,
+  .sessions li:focus-within {
     background: color-mix(in oklab, var(--ink) 8%, transparent);
   }
 
@@ -384,7 +561,7 @@ onMounted(loadList);
 
   .sessions .remove:hover:not(:disabled) {
     color: var(--danger);
-    background: color-mix(in oklab, var(--danger) 12%, transparent);
+    background: transparent;
   }
 }
 

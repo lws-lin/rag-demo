@@ -21,13 +21,24 @@ class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=8000)
 
 
+class CitationOut(BaseModel):
+    document_id: uuid.UUID
+    title: str
+    filename: str
+    page_number: int | None = None
+    page_end: int | None = None
+    heading_path: list[str] = Field(default_factory=list)
+    ordinal: int
+    effective_status: str | None = None
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     role: str
     content: str
-    citations: list | None
+    citations: list[CitationOut] | None
     created_at: datetime
 
 

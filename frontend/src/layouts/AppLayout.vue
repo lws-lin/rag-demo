@@ -10,6 +10,7 @@
         <nav id="app-nav" class="nav" :class="{ open: menuOpen }">
           <router-link to="/knowledge" @click="menuOpen = false">知识库</router-link>
           <router-link to="/chat" :class="{ 'is-current': route.path === '/chat' || route.path.startsWith('/chat/') }" @click="menuOpen = false">对话</router-link>
+          <router-link v-if="user?.role === 'admin'" to="/accounts" @click="menuOpen = false">账号</router-link>
           <div class="nav-account">
             <p v-if="user" class="account-line">{{ user.display_name }} · {{ roleLabel[user.role] }}</p>
             <button class="button secondary" type="button" @click="onLogout">退出登录</button>

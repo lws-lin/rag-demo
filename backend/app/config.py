@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     chunk_overlap: int = 120
     max_upload_bytes: int = 20 * 1024 * 1024
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    embedding_dim: int = 512
+    embedding_cache_dir: str = ""
+    chat_base_url: str = ""
+    chat_api_key: str = ""
+    chat_model: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -39,6 +45,12 @@ class Settings(BaseSettings):
         if self.library_dir:
             return Path(self.library_dir)
         return REPO_ROOT / "data" / "library"
+
+    @property
+    def embedding_cache_path(self) -> Path:
+        if self.embedding_cache_dir:
+            return Path(self.embedding_cache_dir)
+        return REPO_ROOT / "data" / "models"
 
 
 settings = Settings()

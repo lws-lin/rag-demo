@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +17,14 @@ class UserOut(BaseModel):
     username: str
     display_name: str
     role: str
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(min_length=1, max_length=64)
+    role: Literal["admin", "user"]
 
 
 class TokenOut(BaseModel):

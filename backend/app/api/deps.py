@@ -35,6 +35,12 @@ def require_writer(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有知识管理员可以复核")
+    return user
+
+
 def get_visible_conversation(
     conversation_id: uuid.UUID,
     db: Session,

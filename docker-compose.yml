@@ -4,7 +4,8 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # 需要 pgvector，才能在发布时把片段向量写进同一套 Postgres。
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-rag}
@@ -28,6 +29,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD:-rag}@postgres:5432/${POSTGRES_DB:-rag}
       INBOX_DIR: /data/inbox
       LIBRARY_DIR: /data/library
+      EMBEDDING_CACHE_DIR: /data/models
     volumes:
       - ./data:/data
     ports:

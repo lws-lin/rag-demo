@@ -318,6 +318,12 @@ textarea.control {
   color: var(--danger);
 }
 
+.tag.pending,
+.tag.offline {
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
+  color: var(--muted);
+}
+
 .tag.review,
 .tag.parsing {
   background: #f8f1e4;

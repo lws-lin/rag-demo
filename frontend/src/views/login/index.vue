@@ -46,6 +46,7 @@ import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { errorMessage } from "@/api/http";
 import { useAuth } from "@/auth";
+import { notifySuccess } from "@/feedback";
 
 const router = useRouter();
 const { login } = useAuth();
@@ -63,6 +64,7 @@ async function onSubmit() {
   submitting.value = true;
   try {
     await login(username.value.trim(), password.value);
+    notifySuccess("登录成功");
     await router.push("/knowledge");
   } catch (err) {
     error.value = errorMessage(err, "登录失败，请稍后重试");
